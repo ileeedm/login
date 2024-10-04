@@ -3,10 +3,11 @@ import bodyParser from "body-parser";
 import pg from "pg";
 import bcrypt from "bcrypt";
 import session from "express-session"
-import passport from "passport";
+import passport  from "passport";
 import { Strategy } from "passport-local";
 import flash from "connect-flash";
 import env from "dotenv";
+import GoogleStrategy from "passport-google-oauth20";
 
 const app = express();
 const port = 3000;
@@ -21,9 +22,7 @@ app.use(
     secret:process.env.SESSION_SECRET,
     resave:false,
     saveUninitialized: true,
-    cookie: {
-      maxAge: 15000
-    }
+    cookie: {}
 }))
 
 app.use(passport.initialize())
@@ -49,8 +48,8 @@ app.get("/", (req, res) => {
 });
 
 app.get("/secrets", (req, res) => {
-  console.log(req.user)
   
+
   if(req.isAuthenticated()){
     res.render('secrets.ejs')
   }
@@ -59,6 +58,89 @@ app.get("/secrets", (req, res) => {
   }
 
 });
+
+
+app.get("/auth/google",
+  passport.authenticate("google",{
+    scope:["profile","email"]
+  })
+)
+
+
+app.get("/auth/google/secrets",
+  passport.authenticate("google",{
+  successRedirect:"/secrets",
+  failureRedirect:"/login",
+}))
+
+
+
+passport.use("google",new GoogleStrategy({
+  clientID: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  callbackURL: "http://localhost:3000/auth/google/secrets",
+  userProfleURL : "https://www.googleapis.com/oauth2/v3/userinfo",
+    }, async (accesToken,refreshToken, profile, cb) => {
+      console.log(accesToken)
+      console.log(profile.emails[0].value)
+      const email = profile.emails[0].value
+      try{
+        const result = await db.query("SELECT email FROM users WHERE email = ($1)",[email]);
+        const user = result.rows
+        const baseEmail = result.rows[0].email
+        console.log(user)
+        
+        if(email === baseEmail){
+          return cb(null,user)
+         }
+         
+      }
+
+      catch(err){
+        console.log("User does not exist in database")
+        if(err){
+          return cb(null, false)
+        }
+      }
+    
+    }
+))
+
+
+
+passport.use("local",new Strategy (async function verify(username,password,cb){
+  
+  const errorMessage = "Incorrect email"
+  const errorMessageTwo = "Incorrect password"
+  const result = await db.query("SELECT password FROM users WHERE email = ($1)",[username]);
+  const user = result.rows
+  const storedPassword= user.map(item => item.password);
+  
+
+  if(storedPassword.length === 0){
+    return cb(null,false,{message:errorMessage})
+  }
+  
+  else if (storedPassword.length !== 0) {
+    
+    bcrypt.compare(password,storedPassword[0], (err,result) => {
+      
+      if(err){
+       return cb("Error in bycrpit",err)
+        
+      }
+      else if (result == true){
+        return cb(null, user)
+      }
+      else if (result == false) {
+        return cb(null, false,{message:errorMessageTwo})
+      }
+    })
+  }
+
+
+}))
+
 
 app.get("/login", (req, res) => {
   
@@ -112,40 +194,6 @@ app.post("/login", (req, res, next) => {
 });
 
 
-passport.use(new Strategy (async function verify(username,password,cb){
-  
-  const errorMessage = "Incorrect email"
-  const errorMessageTwo = "Incorrect password"
-  const result = await db.query("SELECT password FROM users WHERE email = ($1)",[username]);
-  const user = result.rows
-  const storedPassword= user.map(item => item.password);
-  
-
-  if(storedPassword.length === 0){
-    return cb(null,false,{message:errorMessage})
-  }
-  
-  else if (storedPassword.length !== 0) {
-    
-    bcrypt.compare(password,storedPassword[0], (err,result) => {
-      
-      if(err){
-       return cb("Error in bycrpit",err)
-        
-      }
-      else if (result == true){
-        return cb(null, user)
-      }
-      else if (result == false) {
-        return cb(null, false,{message:errorMessageTwo})
-      }
-    })
-  }
-
-
-}))
-
-
 app.post("/register", async (req, res) => {
   
   const username = req.body.username
@@ -195,11 +243,13 @@ app.post("/register", async (req, res) => {
 
     });
 
+
 passport.serializeUser((user, cb)=>{
   cb(null, user)
 })
 
 passport.deserializeUser((user, cb)=>{
+  console.log(user)
   cb(null, user)
 })
 
