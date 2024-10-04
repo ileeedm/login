@@ -81,29 +81,33 @@ passport.use("google",new GoogleStrategy({
   callbackURL: "http://localhost:3000/auth/google/secrets",
   userProfleURL : "https://www.googleapis.com/oauth2/v3/userinfo",
     }, async (accesToken,refreshToken, profile, cb) => {
-      console.log(accesToken)
-      console.log(profile.emails[0].value)
+      
       const email = profile.emails[0].value
-      try{
-        const result = await db.query("SELECT email FROM users WHERE email = ($1)",[email]);
-        const user = result.rows
-        const baseEmail = result.rows[0].email
-        console.log(user)
-        
-        if(email === baseEmail){
-          return cb(null,user)
-         }
-         
-      }
+      console.log(email)
 
-      catch(err){
-        console.log("User does not exist in database")
-        if(err){
-          return cb(null, false)
-        }
+        const result = await db.query("SELECT email FROM users WHERE email = ($1)",[email]);
+        const userId = await db.query("SELECT id FROM users WHERE email = ($1)",[email]);
+        
+     
+        if (result.rows.length === 0){
+          
+          await db.query("INSERT INTO users (email) VALUES ($1)",[email]);
+          const userIdBase = await db.query("SELECT id FROM users WHERE email = ($1)",[email]);
+          const iD = userIdBase.rows
+          console.log(iD)
+          return cb(null,iD)
+
+        } 
+
+        else if(result.rows.length > 0 ){
+
+          const iD = userId.rows
+          return cb(null,iD)
+       }   
+       
       }
+      
     
-    }
 ))
 
 
@@ -112,10 +116,13 @@ passport.use("local",new Strategy (async function verify(username,password,cb){
   
   const errorMessage = "Incorrect email"
   const errorMessageTwo = "Incorrect password"
+  const errorMessageOne = "Invalid credentials"
   const result = await db.query("SELECT password FROM users WHERE email = ($1)",[username]);
+  const userId = await db.query("SELECT id FROM users WHERE email = ($1)",[username]);
+  const iD = userId.rows
   const user = result.rows
   const storedPassword= user.map(item => item.password);
-  
+ 
 
   if(storedPassword.length === 0){
     return cb(null,false,{message:errorMessage})
@@ -126,11 +133,11 @@ passport.use("local",new Strategy (async function verify(username,password,cb){
     bcrypt.compare(password,storedPassword[0], (err,result) => {
       
       if(err){
-       return cb("Error in bycrpit",err)
+       return cb(null, false,{message:errorMessageOne})
         
       }
       else if (result == true){
-        return cb(null, user)
+        return cb(null, iD)
       }
       else if (result == false) {
         return cb(null, false,{message:errorMessageTwo})
@@ -140,6 +147,24 @@ passport.use("local",new Strategy (async function verify(username,password,cb){
 
 
 }))
+
+app.post("/login", (req, res, next) => {
+  
+  passport.authenticate("local", (err, user, info) => {
+      
+      if (err) { return next(err); }
+      if (!user) {
+          // If authentication fails, set the error message and redirect back to login
+          req.flash('error', info.message); // Use flash messages
+          return res.redirect("/login");
+      }
+      req.logIn(user, (err) => {
+          if (err) { return next(err); }
+          return res.redirect("/secrets"); // Redirect on success
+      });
+  })(req, res, next);
+
+});
 
 
 app.get("/login", (req, res) => {
@@ -175,24 +200,6 @@ app.post("/logout", (req, res, next) => {
 });
 
 
-app.post("/login", (req, res, next) => {
-  
-  passport.authenticate("local", (err, user, info) => {
-      
-      if (err) { return next(err); }
-      if (!user) {
-          // If authentication fails, set the error message and redirect back to login
-          req.flash('error', info.message); // Use flash messages
-          return res.redirect("/login");
-      }
-      req.logIn(user, (err) => {
-          if (err) { return next(err); }
-          return res.redirect("/secrets"); // Redirect on success
-      });
-  })(req, res, next);
-
-});
-
 
 app.post("/register", async (req, res) => {
   
@@ -213,7 +220,7 @@ app.post("/register", async (req, res) => {
         try {
           const result = await db.query("INSERT INTO users (email,password) VALUES ($1,$2) RETURNING *",[username,hash]);
           const user = result.rows[0]
-          console.log(user)
+        
           req.logIn(user, (err) => {
             if (err) { return next(err); }
             return res.redirect("/secrets"); // Redirect on success
@@ -221,16 +228,33 @@ app.post("/register", async (req, res) => {
          
         }
         catch(error){
+          const passwordBase = await db.query("SELECT password FROM users WHERE email = ($1) ",[username]);
+         
+          const passwordUser = passwordBase.rows[0].password
+          console.log(passwordUser)
           
-        if (error.code === '23505') { // Unique violation error code
-          console.error('Email already exists:', error.detail);
-          const errorMsg = "Email already exists"
-          res.render('register.ejs',{errorMessage:errorMsg})
-        } else {
-            console.error('Database error:', error);
-            res.status(500).send('Internal server error. Please try again later.');
-        }
-          }      
+          if(passwordUser === null){
+            const result = await db.query("UPDATE users SET password = $1 WHERE email = $2 RETURNING *",[hash,username]);
+            const user = result.rows[0]
+          
+            req.logIn(user, (err) => {
+              if (err) { return next(err); }
+              return res.redirect("/secrets"); // Redirect on success
+          });
+          }
+          else if (passwordUser !== null){
+
+            if (error.code === '23505') { // Unique violation error code
+              console.error('Email already exists:', error.detail);
+              const errorMsg = "Email already exists"
+              res.render('register.ejs',{errorMessage:errorMsg})
+            } else {
+                console.error('Database error:', error);
+                res.status(500).send('Internal server error. Please try again later.');
+            }
+          }
+         
+        }      
       }
     })
 
@@ -249,7 +273,7 @@ passport.serializeUser((user, cb)=>{
 })
 
 passport.deserializeUser((user, cb)=>{
-  console.log(user)
+ console.log(user)
   cb(null, user)
 })
 

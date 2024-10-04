@@ -24,6 +24,9 @@
               <% if( messages.error && messages.error.includes('Incorrect password')) { %>
                 <p style="color: tomato; padding-left: 4px;"><%=messages.error%></p>
               <%}%>
+              <% if( messages.error && messages.error.includes("Invalid credentials")) { %>
+                <p style="color: tomato; padding-left: 4px;"><%=messages.error%></p>
+              <%}%>
             </div>
             <button type="submit" class="btn btn-dark">Login</button>
           </form>
