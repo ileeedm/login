@@ -14,3 +14,9 @@ body {
   color: #fff;
   background-color: #000;
 }
+
+.logdel {
+  display : flex;
+  justify-content: center;
+  gap:10px;
+}

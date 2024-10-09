@@ -13,6 +13,7 @@ const app = express();
 const port = 3000;
 const saltRounds = 10
 env.config();
+let iD
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static("public"));
@@ -47,8 +48,13 @@ app.get("/", (req, res) => {
   res.render("home.ejs");
 });
 
+app.get("/submit",(req,res) => {
+
+res.render("submit.ejs")
+})
+
 app.get("/secrets", (req, res) => {
-  
+ 
 
   if(req.isAuthenticated()){
     res.render('secrets.ejs')
@@ -93,15 +99,16 @@ passport.use("google",new GoogleStrategy({
           
           await db.query("INSERT INTO users (email) VALUES ($1)",[email]);
           const userIdBase = await db.query("SELECT id FROM users WHERE email = ($1)",[email]);
-          const iD = userIdBase.rows
-          console.log(iD)
+          const user = userIdBase.rows
+          iD = user[0].id
           return cb(null,iD)
 
         } 
 
         else if(result.rows.length > 0 ){
-
-          const iD = userId.rows
+          const userIdBase = await db.query("SELECT id FROM users WHERE email = ($1)",[email]);
+          const user = userIdBase.rows
+          iD = user[0].id
           return cb(null,iD)
        }   
        
@@ -119,10 +126,10 @@ passport.use("local",new Strategy (async function verify(username,password,cb){
   const errorMessageOne = "Invalid credentials"
   const result = await db.query("SELECT password FROM users WHERE email = ($1)",[username]);
   const userId = await db.query("SELECT id FROM users WHERE email = ($1)",[username]);
-  const iD = userId.rows
-  const user = result.rows
-  const storedPassword= user.map(item => item.password);
- 
+  const user = userId.rows
+  const userPassword = result.rows
+  const storedPassword= userPassword.map(item => item.password);
+
 
   if(storedPassword.length === 0){
     return cb(null,false,{message:errorMessage})
@@ -137,6 +144,8 @@ passport.use("local",new Strategy (async function verify(username,password,cb){
         
       }
       else if (result == true){
+        iD = user[0].id
+        console.log(iD)
         return cb(null, iD)
       }
       else if (result == false) {
@@ -152,6 +161,7 @@ app.post("/login", (req, res, next) => {
   
   passport.authenticate("local", (err, user, info) => {
       
+      
       if (err) { return next(err); }
       if (!user) {
           // If authentication fails, set the error message and redirect back to login
@@ -165,6 +175,44 @@ app.post("/login", (req, res, next) => {
   })(req, res, next);
 
 });
+
+app.post("/submit",async (req,res,next) => {
+const secret = req.body.secret
+
+
+console.log(secret)
+console.log(iD)
+
+ try{
+  const result = await db.query("UPDATE users SET secret = $1 WHERE id = $2",[secret,iD])
+
+ } 
+  catch (error) {
+    console.log(error)
+
+}
+
+})
+
+app.post("/delete",(req,res,next) => {
+
+  passport.authenticate("local", (err, user, info) => {
+
+    
+    if (err) { return next(err); }
+    req.logOut(user,async (err) => {
+        if (err) { return next(err); }
+        else {
+          console.log(iD)
+          const userId = iD
+          const result = await db.query("DELETE FROM users WHERE id = ($1)",[userId])
+          return res.redirect("/"); // Redirect on success
+        }
+        
+    });
+})(req, res, next);
+  
+})
 
 
 app.get("/login", (req, res) => {
@@ -190,7 +238,7 @@ app.get("/register", (req, res) => {
 app.post("/logout", (req, res, next) => {
   
   passport.authenticate("local", (err, user, info) => {
-      
+    console.log(iD)
     if (err) { return next(err); }
     req.logOut(user, (err) => {
         if (err) { return next(err); }
@@ -219,8 +267,10 @@ app.post("/register", async (req, res) => {
       else{
         try {
           const result = await db.query("INSERT INTO users (email,password) VALUES ($1,$2) RETURNING *",[username,hash]);
-          const user = result.rows[0]
-        
+           iD = result.rows[0].id
+           const user = iD
+           console.log(user)
+
           req.logIn(user, (err) => {
             if (err) { return next(err); }
             return res.redirect("/secrets"); // Redirect on success
@@ -235,7 +285,8 @@ app.post("/register", async (req, res) => {
           
           if(passwordUser === null){
             const result = await db.query("UPDATE users SET password = $1 WHERE email = $2 RETURNING *",[hash,username]);
-            const user = result.rows[0]
+            iD = result.rows[0].id
+            const user = iD
           
             req.logIn(user, (err) => {
               if (err) { return next(err); }
@@ -273,7 +324,7 @@ passport.serializeUser((user, cb)=>{
 })
 
 passport.deserializeUser((user, cb)=>{
- console.log(user)
+ 
   cb(null, user)
 })
 
