@@ -57,7 +57,13 @@ app.get("/secrets", (req, res) => {
  
 
   if(req.isAuthenticated()){
-    res.render('secrets.ejs')
+    const message = userInf[0].secret
+    if(message){
+      res.render('secrets.ejs',{message:message})
+    }
+    else {
+      res.render('secrets.ejs',{message : "Enter your secret on the submit button"})
+    }
   }
   else{
     res.redirect('/login')
@@ -99,15 +105,15 @@ passport.use("google",new GoogleStrategy({
           
           await db.query("INSERT INTO users (email) VALUES ($1)",[email]);
           const userBase = await db.query("SELECT * FROM users WHERE email = ($1)",[email]);
-          const user = userBase.rows
-          return cb(null,user)
+          userInf = userBase.rows
+          return cb(null,userInf)
 
         } 
 
         else if(result.rows.length > 0 ){
           const userBase = await db.query("SELECT * FROM users WHERE email = ($1)",[email]);
-          const user = userBase.rows
-          return cb(null,user)
+          userInf = userBase.rows
+          return cb(null,userInf)
 
        }   
        
@@ -155,47 +161,25 @@ passport.use("local",new Strategy (async function verify(username,password,cb){
 
 }))
 
-app.post("/login", (req, res, next) => {
-  
-  passport.authenticate("local", (err, user, info) => {
-     
-      if (err) { return next(err); }
-      if (!user) {
-          // If authentication fails, set the error message and redirect back to login
-          req.flash('error', info.message); // Use flash messages
-          return res.redirect("/login");
-      }
-      req.logIn(user, async (err) => {
-          // Use flash messages
-          userInf = user
-          
-          const message = userInf[0].secret
-          if (err) { return next(err); }
-          req.flash('secret', message);
-          return res.redirect("/secrets"); // Redirect on success
-      });
-  })(req, res, next);
-
-});
 
 app.post("/submit",async (req,res,next) => {
 const secret = req.body.secret
-
-passport.authenticate("local", async (err, user, info) => {
-  
+ 
   const userId = userInf[0].id
  
-  if (err) { return next(err); }
- 
+  try{
   const result = await db.query("UPDATE users SET secret = $1 WHERE id = $2",[secret,userId])
   const select = await db.query("SELECT * FROM users WHERE id = $1",[userId])
   userInf = select.rows
-  const message = userInf[0].secret
 
-  req.flash('secret', message);
   return res.redirect("/secrets");
 
-})(req, res, next)
+  }
+  
+catch(error){
+  return res.redirect("/submit")
+}
+
 
 });
 
@@ -230,6 +214,26 @@ app.post("/logout", (req, res, next) => {
 })(req, res, next);
 });
 
+app.post("/login", (req, res, next) => {
+  
+  passport.authenticate("local", (err, user, info) => {
+     
+      if (err) { return next(err); }
+      if (!user) {
+          // If authentication fails, set the error message and redirect back to login
+          req.flash('error', info.message); // Use flash messages
+          return res.redirect("/login");
+      }
+      req.logIn(user, async (err) => {
+          // Use flash messages
+          userInf = user
+    
+          if (err) { return next(err); }
+          return res.redirect("/secrets"); // Redirect on success
+      });
+  })(req, res, next);
+
+});
 
 app.post("/register", async (req, res) => {
   
@@ -250,10 +254,10 @@ app.post("/register", async (req, res) => {
         try {
           const result = await db.query("INSERT INTO users (email,password) VALUES ($1,$2) RETURNING *",[username,hash]);
            userInf = result.rows
-           console.log(userInf)
 
           req.logIn(userInf, (err) => {
-            if (err) { return next(err); }
+
+            if (err) { return next(err); }           
             return res.redirect("/secrets"); // Redirect on success
         });
          
@@ -266,11 +270,12 @@ app.post("/register", async (req, res) => {
           
           if(passwordUser === null){
             const result = await db.query("UPDATE users SET password = $1 WHERE email = $2 RETURNING *",[hash,username]);
-            userInfo = result.rows
-            console.log(userInfo)
+            userInf = result.rows
+            console.log(userInf)
             
-            req.logIn(userInfo, (err) => {
-              if (err) { return next(err); }
+            req.logIn(userInf, (err) => {
+              
+              if (err) { return next(err); }             
               return res.redirect("/secrets"); // Redirect on success
           });
           }
